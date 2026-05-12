@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Loading…</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: monospace;
+      background: #fff;
+      color: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .box     { border: 2px solid #000; padding: 2rem; width: 100%; max-width: 480px; }
+    .label   { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #666; margin-bottom: 0.5rem; }
+    .status  { font-size: 0.9rem; min-height: 1.4em; }
+    .bar-wrap { border: 2px solid #000; height: 10px; margin-top: 1.5rem; }
+    .bar     { height: 100%; background: #000; width: 0%; transition: width 0.4s ease; }
+    .error   { background: #f00; color: #fff; border: 2px solid #000; padding: 1rem; margin-top: 1rem;
+               font-size: 0.85rem; white-space: pre-wrap; display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="label">Status</div>
+    <div class="status" id="status">Initializing…</div>
+    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+  </div>
+  <div class="error" id="error"></div>
+
+  <script type="module">
+    const statusEl = document.getElementById('status');
+    const barEl    = document.getElementById('bar');
+    const errorEl  = document.getElementById('error');
+
+    function setStatus(msg, pct) {
+      statusEl.textContent = msg;
+      if (pct !== undefined) barEl.style.width = pct + '%';
+    }
+
+    function showError(msg) {
+      errorEl.style.display = 'block';
+      errorEl.textContent   = 'Boot error:\n' + msg;
+      setStatus('Failed — see error below', 100);
+      barEl.style.background = '#f00';
+    }
+
+    async function boot() {
+      if (!window.crossOriginIsolated) {
+        showError(
+          'Page is not cross-origin isolated.\n' +
+          'Server must send:\n' +
+          '  Cross-Origin-Opener-Policy: same-origin\n' +
+          '  Cross-Origin-Embedder-Policy: credentialless'
+        );
+        return;
+      }
+
+      setStatus('Loading boot module…', 10);
+      const { bootWasm } = await import('/wasm/boot.js');
+
+      window.addEventListener('wasm-progress', ({ detail }) => {
+        setStatus(detail.step);
+      });
+
+      setStatus('Registering service worker…', 20);
+
+      let pct = 20;
+      const ticker = setInterval(() => {
+        if (pct < 90) { pct += 0.3; barEl.style.width = pct + '%'; }
+      }, 500);
+
+      try {
+        await bootWasm();
+        clearInterval(ticker);
+        setStatus('Rails booted. Entering app…', 100);
+        await new Promise(r => setTimeout(r, 200));
+        // Redirect to your app's root after boot.
+        // Override this to redirect to an auth page if needed.
+        window.location.href = '/';
+      } catch (e) {
+        clearInterval(ticker);
+        showError(e.message);
+        console.error('[wasm_shell] Boot failed:', e);
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>
